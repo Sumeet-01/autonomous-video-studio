@@ -1,126 +1,29 @@
-// Video Generation Provider Abstraction and Implementations
+// Video Generation Provider Implementations: Fal.ai + Replicate.
+//
+// The shared contract (VideoProvider, GenerateParams, BaseVideoProvider, …)
+// lives in ./video-base and is re-exported here, so existing imports keep
+// working unchanged.
 
 import { getConfig } from '@/lib/config';
-import type { GenerationParameters, GenerationAttempt, Asset } from '@/lib/types';
+import {
+  BaseVideoProvider,
+  type GenerateParams,
+  type GenerateResult,
+  type JobStatus,
+  type ProviderCapabilities,
+} from '@/lib/providers/video-base';
+import { VACEWorkerProvider } from '@/lib/providers/vace';
+import type { GenerationParameters } from '@/lib/types';
+import type { VideoProvider } from '@/lib/providers/video-base';
 
-export interface VideoProvider {
-  name: string;
-  generate(params: GenerateParams): Promise<GenerateResult>;
-  getStatus(jobId: string): Promise<JobStatus>;
-  cancel(jobId: string): Promise<boolean>;
-  download(jobId: string, outputPath: string): Promise<void>;
-  testConnection(): Promise<boolean>;
-  getSupportedModels(): string[];
-  getDefaultParameters(): GenerationParameters;
-  getCapabilities(): ProviderCapabilities;
-}
-
-export interface GenerateParams {
-  prompt: string;
-  negativePrompt?: string;
-  image?: string; // base64 or URL for image-to-video
-  video?: string; // base64 or URL for video-to-video
-  parameters: GenerationParameters;
-  model: string;
-  seed?: number;
-  webhookUrl?: string;
-}
-
-export interface GenerateResult {
-  jobId: string;
-  status: JobStatus;
-  estimatedTime?: number;
-  outputUrl?: string;
-}
-
-export type JobStatus = 'queued' | 'preparing' | 'generating' | 'downloading' | 'completed' | 'failed' | 'cancelled';
-
-export interface ProviderCapabilities {
-  imageToVideo: boolean;
-  videoToVideo: boolean;
-  textToVideo: boolean;
-  maxDuration: number;
-  maxResolution: { width: number; height: number };
-  supportedAspectRatios: string[];
-  supportedFps: number[];
-  seedSupport: boolean;
-}
-
-// Base provider class with common functionality
-export abstract class BaseVideoProvider implements VideoProvider {
-  abstract name: string;
-  abstract generate(params: GenerateParams): Promise<GenerateResult>;
-  abstract getStatus(jobId: string): Promise<JobStatus>;
-  abstract cancel(jobId: string): Promise<boolean>;
-  abstract download(jobId: string, outputPath: string): Promise<void>;
-  abstract testConnection(): Promise<boolean>;
-  abstract getSupportedModels(): string[];
-  abstract getDefaultParameters(): GenerationParameters;
-  abstract getCapabilities(): ProviderCapabilities;
-
-  protected config = getConfig();
-  
-  protected async makeRequest<T>(
-    url: string,
-    options: RequestInit,
-    timeout = 300000
-  ): Promise<T> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-    try {
-      const response = await fetch(url, {
-        ...options,
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`${this.name} API error: ${response.status} - ${error}`);
-      }
-
-      return await response.json();
-    } catch (error) {
-      clearTimeout(timeoutId);
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`${this.name} request timeout`);
-      }
-      throw error;
-    }
-  }
-
-  protected buildHeaders(apiKey: string): Record<string, string> {
-    return {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    };
-  }
-
-  validateParameters(params: GenerateParams): void {
-    const caps = this.getCapabilities();
-    
-    if (params.parameters.duration > caps.maxDuration) {
-      throw new Error(`Duration ${params.parameters.duration}s exceeds maximum ${caps.maxDuration}s`);
-    }
-    
-    if (params.parameters.width > caps.maxResolution.width || params.parameters.height > caps.maxResolution.height) {
-      throw new Error(`Resolution ${params.parameters.width}x${params.parameters.height} exceeds maximum ${caps.maxResolution.width}x${caps.maxResolution.height}`);
-    }
-    
-    if (!caps.supportedAspectRatios.includes(`${params.parameters.width}:${params.parameters.height}`)) {
-      const ratio = params.parameters.width / params.parameters.height;
-      const supported = caps.supportedAspectRatios.map(r => {
-        const [w, h] = r.split(':').map(Number);
-        return w / h;
-      });
-      const closest = supported.reduce((prev, curr) => 
-        Math.abs(curr - ratio) < Math.abs(prev - ratio) ? curr : prev
-      );
-      console.warn(`Aspect ratio ${params.parameters.width}:${params.parameters.height} not directly supported, closest: ${closest}`);
-    }
-  }
-}
+export {
+  BaseVideoProvider,
+  type GenerateParams,
+  type GenerateResult,
+  type JobStatus,
+  type ProviderCapabilities,
+  type VideoProvider,
+} from '@/lib/providers/video-base';
 
 // Fal.ai Provider
 export class FalProvider extends BaseVideoProvider {
@@ -471,12 +374,15 @@ export class ReplicateProvider extends BaseVideoProvider {
 export class VideoProviderFactory {
   private static providers: Map<string, VideoProvider> = new Map();
 
-  static getProvider(type: 'fal' | 'replicate', apiKey?: string): VideoProvider {
+  static getProvider(
+    type: 'fal' | 'replicate' | 'vace',
+    apiKey?: string
+  ): VideoProvider {
     const key = `${type}:${apiKey || 'default'}`;
-    
+
     if (!this.providers.has(key)) {
       let provider: VideoProvider;
-      
+
       switch (type) {
         case 'fal':
           provider = new FalProvider(apiKey);
@@ -484,27 +390,35 @@ export class VideoProviderFactory {
         case 'replicate':
           provider = new ReplicateProvider(apiKey);
           break;
+        case 'vace': {
+          provider = new VACEWorkerProvider();
+          break;
+        }
         default:
           throw new Error(`Unknown provider: ${type}`);
       }
-      
+
       this.providers.set(key, provider);
     }
-    
+
     return this.providers.get(key)!;
   }
 
   static getAvailableProviders(): VideoProvider[] {
     const config = getConfig();
     const providers: VideoProvider[] = [];
-    
+
     if (config.FAL_API_KEY) {
       providers.push(this.getProvider('fal'));
     }
     if (config.REPLICATE_API_TOKEN) {
       providers.push(this.getProvider('replicate'));
     }
-    
+    // Explicit opt-in only: the Lightning worker is not assumed present.
+    if (config.GPU_WORKER_URL) {
+      providers.push(this.getProvider('vace'));
+    }
+
     return providers;
   }
 

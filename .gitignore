@@ -40,6 +40,9 @@ data/
 projects/
 production_output/
 temp/
+gpu-worker/outputs/
+gpu-worker/.test-outputs/
+gpu-worker/.env
 *.db
 *.db-wal
 *.db-shm
@@ -57,3 +60,4 @@ venv/
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+gpu-worker/tests/.test-outputs/

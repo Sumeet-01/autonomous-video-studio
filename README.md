@@ -25,8 +25,10 @@ generations start better and need fewer retries.
   the reference while replacing subject, environment and identity with yours.
   Subject/environment "geometry locks" protect products, characters and locations.
 - **Video generation** — provider abstraction (`VideoProvider`) with **fal.ai**
-  (Wan 2.1 14B image-to-video first-class) and **Replicate** adapters. Capabilities
-  gate every parameter; vendor errors normalize to common categories.
+  (Wan 2.1 14B image-to-video first-class), **Replicate**, and the self-hosted
+  **Lightning VACE worker** (`VACEWorkerProvider`, opt-in via `GPU_WORKER_URL` —
+  Wan2.1-VACE-1.3B on an L4, text-to-video). Capabilities gate every parameter;
+  vendor errors normalize to common categories. See `gpu-worker/README.md`.
 - **Self-correction loop** — Muse Spark inspects generated frames against intent,
   reference and locks (anatomy, deformation, drift, flicker, physics, continuity…),
   writes a structured quality report, and the mutation engine applies *targeted*

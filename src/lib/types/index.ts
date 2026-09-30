@@ -6,7 +6,7 @@ export type JobStatus = 'queued' | 'preparing' | 'generating' | 'downloading' | 
 
 export type AssetType = 'reference_video' | 'reference_image' | 'subject_image' | 'environment_image' | 'generated_video' | 'frame' | 'audio' | 'voice' | 'sfx' | 'export';
 
-export type ProviderType = 'fal' | 'replicate' | 'elevenlabs' | 'muse' | 'local';
+export type ProviderType = 'fal' | 'replicate' | 'vace' | 'elevenlabs' | 'muse' | 'local';
 
 export interface Project {
   id: string;

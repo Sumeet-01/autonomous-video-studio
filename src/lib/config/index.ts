@@ -9,6 +9,11 @@ const EnvSchema = z.object({
   // Video Generation Providers
   FAL_API_KEY: z.string().optional(),
   REPLICATE_API_TOKEN: z.string().optional(),
+
+  // Self-hosted GPU worker (Lightning L4 VACE). Explicit opt-in: the
+  // provider only activates when this URL is set. Falls back to
+  // PYTHON_SERVICE_URL when set there instead.
+  GPU_WORKER_URL: z.string().url().optional(),
   
   // Voice Provider
   ELEVENLABS_API_KEY: z.string().optional(),
@@ -98,6 +103,16 @@ export function getProviderStatus(): ProviderStatus[] {
     models: ['wan-2.1', 'stable-video-diffusion', 'luma-dream-machine', 'runway-gen3', 'pika'],
   });
   
+  // Video Generation - Lightning VACE worker (self-hosted L4)
+  statuses.push({
+    name: 'Lightning VACE',
+    type: 'video',
+    configured: !!config.GPU_WORKER_URL,
+    connected: false,
+    models: ['wan2.1-vace-1.3b'],
+    extra: config.GPU_WORKER_URL,
+  });
+
   // Voice - ElevenLabs
   statuses.push({
     name: 'ElevenLabs',
@@ -173,6 +188,8 @@ export async function testProviderConnections(): Promise<ProviderStatus[]> {
             status.connected = await testFalConnection(config.FAL_API_KEY);
           } else if (status.name === 'Replicate' && config.REPLICATE_API_TOKEN) {
             status.connected = await testReplicateConnection(config.REPLICATE_API_TOKEN);
+          } else if (status.name === 'Lightning VACE' && config.GPU_WORKER_URL) {
+            status.connected = await testVACEWorkerConnection(config.GPU_WORKER_URL);
           }
           break;
         case 'voice':
@@ -237,6 +254,21 @@ async function testReplicateConnection(token: string): Promise<boolean> {
       signal: AbortSignal.timeout(5000),
     });
     return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function testVACEWorkerConnection(workerUrl: string): Promise<boolean> {
+  try {
+    // Genuine check against the worker's liveness endpoint (cheap: never
+    // loads the model). Any 2xx with status "ok" counts as connected.
+    const response = await fetch(`${workerUrl.replace(/\/$/, '')}/health`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok) return false;
+    const body = (await response.json()) as { status?: string };
+    return body.status === 'ok';
   } catch {
     return false;
   }
